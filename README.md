@@ -1,0 +1,1 @@
+# Barra-Equity-Risk-Model
