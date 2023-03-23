@@ -6,3 +6,6 @@ __pycache__/
 
 # Ignore Git folder
 .git/
+
+# Ignore Mac OS files
+.DS_Store
