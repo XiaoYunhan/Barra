@@ -9,7 +9,6 @@ Created on Tue Mar 14 17:11:45 2023
 import pandas as pd
 import numpy as np
 import glob
-import factors as ft
 import datacleaner as dc
 from tqdm import tqdm
 import statsmodels.api as sm
