@@ -1,0 +1,8 @@
+# Ignore VS Code workspace settings
+.vscode/
+
+# Ignore Python byte-code files
+__pycache__/
+
+# Ignore Git folder
+.git/
