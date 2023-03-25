@@ -138,7 +138,15 @@ stock_asset = report_asset.pivot_table(index='Accper', columns = 'Stkcd', values
 stock_cash_income = report_cash.pivot_table(index='Accper', columns = 'Stkcd', values = 'C001000000')
 
 '''
-股票数据
+行业分类
+'''
+stock_industry = pd.read_csv('行业分类/STK_INDUSTRYCLASS.csv')
+
+# 使用申万分类P0211, P0218
+stock_industry = stock_industry[stock_industry.IndustryClassificationID=='P0217']
+
+'''
+股票交易数据
 '''
 # 导入股票日数据
 file_names = glob.glob('日个股回报率/*.csv')
@@ -169,6 +177,52 @@ stock_shares = stock_prices.pivot_table(index='Trddt', columns='Stkcd', values='
 # 股价
 stock_price_mat = stock_prices.pivot_table(index='Trddt', columns='Stkcd', values='Clsprc')
 
+'''
+股票财务数据
+'''
+file_names = glob.glob('个股财务/*.csv')
+stock_financial_index = pd.concat((pd.read_csv(file) for file in file_names), ignore_index=True)
+stock_financial_index = stock_financial_index.rename(columns = {'TradingDate':'Trddt', 'Symbol':'Stkcd'})
+stock_financial_index['Trddt'] = pd.to_datetime(stock_financial_index['Trddt'])
+# PE [市盈率] - 市盈率＝股票市总值/最近四个季度的归属母公司的净利润之和
+stock_PE = stock_financial_index.pivot_table(index='Trddt', columns='Stkcd', values='PE')
+
+# PB [市净率] - 市净率＝股票市值/净资产。净资产为最新定期报告公布的净资产。
+stock_PB = stock_financial_index.pivot_table(index='Trddt', columns='Stkcd', values='PB')
+
+# PCF [市现率] - 市现率＝股票市值/去年经营现金流量净额。
+stock_PCF = stock_financial_index.pivot_table(index='Trddt', columns='Stkcd', values='PCF')
+
+# PS [市销率] - 市销率＝股票市值/去年营业收入。
+stock_PS = stock_financial_index.pivot_table(index='Trddt', columns='Stkcd', values='PS')
+
+'''
+股票一致预期数据
+'''
+file_names = glob.glob('滚动一致预期/*.csv')
+stock_expect_ttm = pd.concat((pd.read_csv(file) for file in file_names), ignore_index=True)
+stock_expect_ttm = stock_expect_ttm.rename(columns = {'ForecastDate':'Trddt','Symbol' : 'Stkcd'})
+
+# 一致预期每股收益
+stock_EPS = stock_expect_ttm.pivot_table(index = 'Trddt', columns = 'Stkcd', values = 'EPS')
+stock_EPS.index = pd.to_datetime(stock_EPS.index)
+
+
+file_names = glob.glob('一致预期/*.csv')
+stock_expect = pd.concat((pd.read_csv(file) for file in file_names), ignore_index=True)
+stock_expect = stock_expect.rename(columns = {'ForecastDate':'Trddt','Symbol' : 'Stkcd'})
+stock_expect['Trddt'] = pd.to_datetime(stock_expect['Trddt'])
+stock_expect['ForecastYear'] = pd.to_datetime(stock_expect['ForecastYear'])
+# stock_expect['year_gap'] = stock_expect['ForecastYear'].dt.year - stock_expect['Trddt'].dt.year
+stock_expect = stock_expect[['Stkcd', 'Trddt', 'ForecastYear', 'NetProfit']]
+stock_expect = stock_expect.sort_values(by = ['Trddt', 'ForecastYear'])
+
+n = stock_expect.groupby(['Stkcd', 'Trddt']).count().reset_index()
+n.columns = ['Stkcd', 'Trddt','x','y']
+stock_expect = pd.merge(stock_expect, n, on = ['Stkcd', 'Trddt'], how = 'inner')
+stock_expect = stock_expect[stock_expect['x'] == 3]
+stock_expect = stock_expect[['Stkcd', 'Trddt', 'ForecastYear', 'NetProfit']]
+
 # 导入沪深300指数收益率
 index_300 = pd.read_csv('300日收益率.csv')
 index_300['Trddt'] = pd.to_datetime(index_300['Trddt'])
@@ -182,17 +236,53 @@ stock_list = stock_list.intersection(set(stock_prices.Stkcd))
 stock_list = stock_list.intersection(set(stock_income.columns))
 stock_list = stock_list.intersection(set(stock_total_shares.columns))
 stock_list = stock_list.intersection(set(stock_long_debt.columns))
+stock_list = stock_list.intersection(set(stock_PE.columns))
+stock_list = stock_list.intersection(set(stock_PB.columns))
+stock_list = stock_list.intersection(set(stock_PCF.columns))
+stock_list = stock_list.intersection(set(stock_EPS.columns))
 stock_list = np.sort(list(stock_list))
 
 # 合并时间
-trade_date = np.array(stock_volume.index)
+trade_date = set(stock_volume.index).intersection(set(stock_PB.index))
+trade_date = np.sort(list(trade_date))
 available_date = dc.combine_date(trade_date, report_date.loc[:,stock_list])
-rpt_date = available_date.iloc[:,0].unique()
+rpt_date = np.sort(available_date.stack().unique())
 
 
 '''
 part2: 因子计算，输出矩阵形式因子
 '''
+
+# stock_expect_date为交易日可获得的最新报告期及预测报告期
+available_date_stack = available_date.stack().reset_index().dropna()
+available_date_stack = available_date_stack.rename(columns = {'level_0': 'Trddt', 0: 'report_date'})
+stock_expect_date = pd.merge(stock_expect, available_date_stack, on = ['Stkcd', 'Trddt'], how = 'inner')
+stock_expect_date['year_gap'] = stock_expect_date['ForecastYear'].dt.year - stock_expect_date['Trddt'].dt.year
+
+
+
+
+# EGIB 未来 3 年企业一致预期净利润增长率。
+stock_expect_pro3 = pd.DataFrame(index = trade_date, columns = stock_list)
+temp = stock_expect_date[stock_expect_date['year_gap'] == 2].pivot_table(index = 'Trddt', 
+                                                                         columns = 'Stkcd',
+                                                                         values = 'NetProfit')
+
+stock_expect_pro3.loc[temp.index, temp.columns] = temp
+
+available_Pro = dc.get_available_data(available_date, stock_net_profit)
+EGIB = stock_expect_pro3.loc[trade_date,stock_list]/available_Pro.loc[trade_date,stock_list] - 1
+
+
+# EGIB_S 未来 1 年企业一致预期净利润增长率。
+stock_expect_pro1 = pd.DataFrame(index = trade_date, columns = stock_list)
+temp = stock_expect_date[stock_expect_date['year_gap'] == 0].pivot_table(index = 'Trddt', 
+                                                                         columns = 'Stkcd',
+                                                                         values = 'NetProfit')
+stock_expect_pro1.loc[temp.index, temp.columns] = temp
+EGIB_S = stock_expect_pro1.loc[trade_date,stock_list]/available_Pro.loc[trade_date,stock_list] - 1
+
+
 # MLEV = (ME + LD) / ME ;其中ME 表示企业当前总市值，LD 表示企业长期负债。
 available_LD = dc.get_available_data(available_date, stock_long_debt)
 MLEV = (stock_mkt_cap.loc[trade_date,stock_list] + available_LD.loc[trade_date,stock_list]) / stock_mkt_cap.loc[trade_date,stock_list]
@@ -208,9 +298,19 @@ BLEV = dc.get_available_data(available_date, BLEV)
 # LNCAP 个股总市值对数值。
 LNCAP = np.log(stock_mkt_cap.loc[trade_date,stock_list])
 
-# CETOP = 个股现金收益比股票价格。
-available_cash = dc.get_available_data(available_date, stock_cash_income)
-CETOP = available_cash.loc[trade_date,stock_list]/stock_price_mat.loc[trade_date,stock_list]
+# EPIBS EPIBS = est _ eps / P ;其中est _ eps 为个股一致预期基本每股收益。
+EPIBS = stock_EPS.loc[trade_date,stock_list]/stock_price_mat.loc[trade_date,stock_list]
+
+# ETOP 市盈率倒数，市盈率＝股票市总值/最近四个季度的归属母公司的净利润之和
+ETOP = 1/stock_PE.loc[trade_date,stock_list]
+
+# # CETOP = 个股现金收益比股票价格。
+# available_cash = dc.get_available_data(available_date, stock_cash_income)
+# CETOP = available_cash.loc[trade_date,stock_list]/stock_price_mat.loc[trade_date,stock_list]
+
+# CETOP = 市现率倒数，市现率＝股票市值/去年经营现金流量净额。
+CETOP = 1/stock_PCF.loc[trade_date,stock_list]
+
 
 # SGRO 过去 5 年企业营业总收入复合增长率。(简单起见，直接用20个季度算)
 SGRO = (stock_income.pct_change(periods=20)+1)**(1/5) - 1
@@ -222,62 +322,64 @@ EGRO = (stock_par_profit.pct_change(periods=20)+1)**(1/5) - 1
 EGRO = EGRO.loc[rpt_date, stock_list]
 EGRO = dc.get_available_data(available_date, EGRO)
 
-# BTOP 计算企业总权益值除以当前市值。
-available_share = dc.get_available_data(available_date, stock_total_shares)
-BTOP = available_share.loc[trade_date,stock_list]/stock_mkt_cap.loc[trade_date,stock_list]
+# # BTOP 计算企业总权益值除以当前市值。
+# available_share = dc.get_available_data(available_date, stock_total_shares)
+# BTOP = available_share.loc[trade_date,stock_list]/stock_mkt_cap.loc[trade_date,stock_list]
 
-# ETOP
+# BTOP：市净率倒数 市净率＝股票市值/净资产。净资产为最新定期报告公布的净资产。
+BTOP = 1/stock_PB.loc[trade_date,stock_list]
+
 
 #计算beta
-beta_values = {}
-for stock in stock_returns.columns:
-    stock_beta_values = []
-    for i in range(len(stock_returns) - 249):
-        window_stock_returns = stock_returns[stock].iloc[i:i+250]
-        window_hs300_returns = index_300.iloc[i:i+250]  
-        beta = ewma_beta(window_stock_returns, window_hs300_returns, 60)
-        stock_beta_values.append(beta)
-    beta_values[stock] = stock_beta_values
-beta_values = pd.DataFrame(beta_values)
-beta_values.index = stock_returns.iloc[249:1214,:].index
+# beta_values = {}
+# for stock in stock_returns.columns:
+#     stock_beta_values = []
+#     for i in range(len(stock_returns) - 249):
+#         window_stock_returns = stock_returns[stock].iloc[i:i+250]
+#         window_hs300_returns = index_300.iloc[i:i+250]  
+#         beta = ewma_beta(window_stock_returns, window_hs300_returns, 60)
+#         stock_beta_values.append(beta)
+#     beta_values[stock] = stock_beta_values
+# beta_values = pd.DataFrame(beta_values)
+# beta_values.index = stock_returns.iloc[249:1214,:].index
 
-#计算DATSD
-DATSD_values = {}
-for stock in stock_returns.columns:
-    stock_datsd_values = []
-    for i in range(len(stock_returns) - 249):
-        window_stock_returns = stock_returns[stock].iloc[i:i+250]
-        datsd = ewma_std(window_stock_returns, 40)
-        stock_datsd_values.append(datsd)
-    DATSD_values[stock] = stock_datsd_values
-DATSD_values = pd.DataFrame(DATSD_values)
-DATSD_values.index = stock_returns.iloc[249:1214,:].index
+# #计算DATSD
+# DATSD_values = {}
+# for stock in stock_returns.columns:
+#     stock_datsd_values = []
+#     for i in range(len(stock_returns) - 249):
+#         window_stock_returns = stock_returns[stock].iloc[i:i+250]
+#         datsd = ewma_std(window_stock_returns, 40)
+#         stock_datsd_values.append(datsd)
+#     DATSD_values[stock] = stock_datsd_values
+# DATSD_values = pd.DataFrame(DATSD_values)
+# DATSD_values.index = stock_returns.iloc[249:1214,:].index
 
-#计算CMRA
-CMRA_values = {}
-for stock in stock_returns.columns:
-    stock_CMRA_values = []
-    a = daily_to_monthly_returns(stock_returns[stock], stock_returns.index)
-    for i in range(len(a)-12):
-        window_stock_returns = a[i:i+12]
-        CMRA = cmra(window_stock_returns)
-        stock_CMRA_values.append(CMRA)
-    CMRA_values[stock] = stock_CMRA_values
-CMRA_values = pd.DataFrame(CMRA_values)
-CMRA_values.index = a.iloc[12:61].index
+# #计算CMRA
+# CMRA_values = {}
+# for stock in stock_returns.columns:
+#     stock_CMRA_values = []
+#     a = daily_to_monthly_returns(stock_returns[stock], stock_returns.index)
+#     for i in range(len(a)-12):
+#         window_stock_returns = a[i:i+12]
+#         CMRA = cmra(window_stock_returns)
+#         stock_CMRA_values.append(CMRA)
+#     CMRA_values[stock] = stock_CMRA_values
+# CMRA_values = pd.DataFrame(CMRA_values)
+# CMRA_values.index = a.iloc[12:61].index
 
-#计算Hsigma
-HSIGMA_values = {}
-for stock in stock_returns.columns:
-    stock_hsigma_values = []
-    for i in range(len(stock_returns) - 249):
-        window_stock_returns = stock_returns[stock].iloc[i:i+250]
-        window_hs300_returns = index_300.iloc[i:i+250]  
-        hsigma = ewma_hsigma(window_stock_returns, window_hs300_returns, 60)
-        stock_hsigma_values.append(hsigma)
-    HSIGMA_values[stock] = stock_hsigma_values
-HSIGMA_values = pd.DataFrame(HSIGMA_values)
-HSIGMA_values.index = stock_returns.iloc[249:1214,:].index
+# #计算Hsigma
+# HSIGMA_values = {}
+# for stock in stock_returns.columns:
+#     stock_hsigma_values = []
+#     for i in range(len(stock_returns) - 249):
+#         window_stock_returns = stock_returns[stock].iloc[i:i+250]
+#         window_hs300_returns = index_300.iloc[i:i+250]  
+#         hsigma = ewma_hsigma(window_stock_returns, window_hs300_returns, 60)
+#         stock_hsigma_values.append(hsigma)
+#     HSIGMA_values[stock] = stock_hsigma_values
+# HSIGMA_values = pd.DataFrame(HSIGMA_values)
+# HSIGMA_values.index = stock_returns.iloc[249:1214,:].index
 
 beta = pd.read_csv('beta.csv')
 datsd = pd.read_csv('datsd.csv')
@@ -285,8 +387,9 @@ cmra = pd.read_csv('cmra.csv')
 hsigma = pd.read_csv('hsigma.csv')
 
 # STOM = ln(sum21 (Vt /St));其中Vt 表示当日成交量，St 表示流通股本。
-STOM = stock_volume.loc[trade_date,stock_list] / stock_shares.loc[trade_date,stock_list]
+STOM = stock_volume.loc[:,stock_list] / stock_shares.loc[:,stock_list]
 STOM = np.log(STOM.rolling(window = 21).sum())
+
 
 # STOQ = ln(1/T sumT exp(STOM));其中T=3。
 STOQ = np.exp(STOM)
@@ -308,6 +411,12 @@ def cal_RSTR(stock_returns, weight, T = 500, L = 21):
     return RSTR
 
 RSTR = cal_RSTR(stock_returns, weight)
-'''
-part3: 股票池确定
-'''
+
+
+STOM = STOM.loc[trade_date,stock_list]
+STOQ = STOQ.loc[trade_date,stock_list]
+STOA = STOA.loc[trade_date,stock_list]
+RSTR = RSTR.loc[trade_date,stock_list]
+
+
+
