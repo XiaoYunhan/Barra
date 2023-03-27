@@ -137,13 +137,8 @@ stock_asset = report_asset.pivot_table(index='Accper', columns = 'Stkcd', values
 # 现金收益
 stock_cash_income = report_cash.pivot_table(index='Accper', columns = 'Stkcd', values = 'C001000000')
 
-'''
-行业分类
-'''
-stock_industry = pd.read_csv('行业分类/STK_INDUSTRYCLASS.csv')
 
-# 使用申万分类P0211, P0218
-stock_industry = stock_industry[stock_industry.IndustryClassificationID=='P0217']
+
 
 '''
 股票交易数据
@@ -240,11 +235,37 @@ stock_list = stock_list.intersection(set(stock_PE.columns))
 stock_list = stock_list.intersection(set(stock_PB.columns))
 stock_list = stock_list.intersection(set(stock_PCF.columns))
 stock_list = stock_list.intersection(set(stock_EPS.columns))
+
+trade_date = set(stock_volume.index).intersection(set(stock_PB.index))
+trade_date = np.sort(list(trade_date))
+
+'''
+行业分类
+'''
+stock_industry = pd.read_csv('行业分类/STK_IndustryClassAnl.csv')
+
+# 使用申万分类P0211, P0218
+stock_industry = stock_industry[stock_industry.IndustryClassificationID.isin(['P0211', 'P0218'])]
+stock_industry = stock_industry[['EndDate', 'Symbol', 'IndustryCode1','IndustryName1']]
+stock_industry.EndDate = pd.to_datetime(stock_industry.EndDate)
+
+# 整合时间
+trade_date_year = pd.DataFrame(trade_date)
+trade_date_year['year'] = trade_date_year.iloc[:,0].dt.year
+stock_industry['year'] = stock_industry['EndDate'].dt.year
+
+stock_ind_2023 = stock_industry[stock_industry['year'] == 2022]
+stock_ind_2023['year'] = 2023
+stock_industry = pd.concat([stock_industry, stock_ind_2023])
+stock_industry = pd.merge(trade_date_year, stock_industry, on = 'year', how = 'left')
+
+unique_industries = stock_industry.IndustryCode1.unique()
+unique_stock_codes = stock_industry.Symbol.unique()
+
+stock_list = set(stock_list).intersection(set(unique_stock_codes))
 stock_list = np.sort(list(stock_list))
 
 # 合并时间
-trade_date = set(stock_volume.index).intersection(set(stock_PB.index))
-trade_date = np.sort(list(trade_date))
 available_date = dc.combine_date(trade_date, report_date.loc[:,stock_list])
 rpt_date = np.sort(available_date.stack().unique())
 
@@ -386,6 +407,11 @@ datsd = pd.read_csv('datsd.csv')
 cmra = pd.read_csv('cmra.csv')
 hsigma = pd.read_csv('hsigma.csv')
 
+beta = beta.loc[trade_date,stock_list]
+datsd= datsd.loc[trade_date,stock_list]
+cmra = cmra.loc[trade_date,stock_list]
+hsigma = hsigma.loc[trade_date,stock_list]
+
 # STOM = ln(sum21 (Vt /St));其中Vt 表示当日成交量，St 表示流通股本。
 STOM = stock_volume.loc[:,stock_list] / stock_shares.loc[:,stock_list]
 STOM = np.log(STOM.rolling(window = 21).sum())
@@ -418,5 +444,25 @@ STOQ = STOQ.loc[trade_date,stock_list]
 STOA = STOA.loc[trade_date,stock_list]
 RSTR = RSTR.loc[trade_date,stock_list]
 
+
+
+# 行业因子，共32个行业
+industry_dfs = {}
+for industry in tqdm(unique_industries):
+    industry_dfs[industry] = pd.DataFrame(index=trade_date, columns=stock_list).fillna(0)
+
+
+for industry, group in tqdm(stock_industry.groupby('IndustryCode1')):
+    for _, row in group.iterrows():
+        industry_dfs[industry].at[row['EndDate'], row['Symbol']] = 1
+ 
+folder_path = "../data/industry_factors"
+# 存为csv
+for industry, industry_df in industry_dfs.items():
+    
+    file_name =  f"{folder_path}{industry}.csv"
+    
+    industry_df.to_csv(file_name)
+    print('保存至'+file_name)
 
 
