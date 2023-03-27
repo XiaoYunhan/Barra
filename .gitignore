@@ -2,7 +2,10 @@
 .vscode/
 
 # Ignore Python byte-code files
-__pycache__/
+*/__pycache__/
+
+# Ignore Jupyter notebook checkpoints
+*/.ipynb_checkpoints/
 
 # Ignore Git folder
 .git/
