@@ -242,7 +242,7 @@ trade_date = np.sort(list(trade_date))
 '''
 行业分类
 '''
-stock_industry = pd.read_csv('行业分类/STK_IndustryClassAnl.csv')
+stock_industry = pd.read_csv('../data/raw_data/行业分类/STK_IndustryClassAnl.csv')
 
 # 使用申万分类P0211, P0218
 stock_industry = stock_industry[stock_industry.IndustryClassificationID.isin(['P0211', 'P0218'])]
@@ -445,18 +445,21 @@ STOA = STOA.loc[trade_date,stock_list]
 RSTR = RSTR.loc[trade_date,stock_list]
 
 
-
 # 行业因子，共32个行业
+date = np.array(trade_date)
+stock = np.array(stock_list).astype('int64')
+# stock.columns = ['Symbol']
+# stock_industry = pd.merge(date, stock_industry, on = 'Trddt', how = 'inner')
+# stock_industry = pd.merge(stock, stock_industry, on = 'Symbol', how = 'left')
+
 industry_dfs = {}
-for industry in tqdm(unique_industries):
-    industry_dfs[industry] = pd.DataFrame(index=trade_date, columns=stock_list).fillna(0)
-
-
 for industry, group in tqdm(stock_industry.groupby('IndustryCode1')):
-    for _, row in group.iterrows():
-        industry_dfs[industry].at[row['EndDate'], row['Symbol']] = 1
- 
-folder_path = "../data/industry_factors"
+    industry_dfs[industry] = group[['Trddt', 'Symbol','IndustryCode1']].pivot_table(index = 'Trddt', columns = 'Symbol', aggfunc=lambda x: 1)
+    industry_dfs[industry].columns = industry_dfs[industry].columns.get_level_values(1)
+    industry_dfs[industry] = industry_dfs[industry].reindex(index=trade_date, columns = stock).fillna(0)
+
+
+folder_path = "../data/industry_factors/"
 # 存为csv
 for industry, industry_df in industry_dfs.items():
     

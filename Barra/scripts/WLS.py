@@ -66,8 +66,8 @@ stock_list = factors_dict['growth'].columns.values
 
 for factor in factors_dict.keys():
     factors_dict[factor] = factors_dict[factor].loc[trade_date, stock_list]
-    # factors_dict[factor] = factors_dict[factor].fillna(0)
-    factors_dict[factor] = factors_dict[factor].dropna(axis = 0, how = 'all')
+    factors_dict[factor] = factors_dict[factor].fillna(0)
+    # factors_dict[factor] = factors_dict[factor].dropna(axis = 0, how = 'all')
 
 file_names = glob.glob('../data/industry_factors/*.csv')
 for file_name in file_names:
@@ -77,6 +77,9 @@ for file_name in file_names:
     factors_dict[key] = factors_dict[key].set_index('Trddt')
     factors_dict[key].index = pd.to_datetime(factors_dict[key].index)
     factors_dict[key] = factors_dict[key].loc[trade_date, stock_list]
+    
+# for factor in factors_dict.keys():
+#     factors_dict[factor] = factors_dict[factor].fillna(0)
     
 stock_returns = stock_returns.loc[trade_date, stock_list]
 stock_returns = stock_returns.fillna(0)
@@ -89,6 +92,7 @@ X = {}
 for i in tqdm(range(len(trade_date))):
     date = trade_date[i]
     X[date] = pd.concat((factors_dict[factor].loc[date,:] for factor in factors_dict.keys()), axis = 1)    
+    X[date].columns = [factor for factor in factors_dict.keys()]
 
 f = []
 for i in tqdm(range(len(trade_date))):
@@ -98,7 +102,7 @@ for i in tqdm(range(len(trade_date))):
 
 f = pd.DataFrame(f)
 
-
+f.to_csv('../data/WLS_result.csv')
 
 
 
