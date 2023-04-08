@@ -12,3 +12,6 @@
 
 # Ignore Mac OS files
 .DS_Store
+
+# Ignore Metal files
+.metals/
