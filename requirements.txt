@@ -3,5 +3,7 @@ numpy
 pandas
 tqdm
 statsmodels
+matplotlib
+scikit-learn
 
 ###### Requirements with Version Specifiers ######
