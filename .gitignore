@@ -15,3 +15,6 @@
 
 # Ignore Metal files
 .metals/
+
+# Ignore IntelliJ files
+.idea/
